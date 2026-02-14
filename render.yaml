@@ -2,15 +2,14 @@ services:
   - type: web
     name: mobile-backend
     env: node
-    plan: free
     buildCommand: npm install
     startCommand: npm start
     envVars:
       - key: PORT
         value: 5001
       - key: MONGODB_URI
-        sync: false
+        value: mongodb+srv://nireshtoranto_db_user:qWsRzqCyqmmkhu3R@cluster0.qa8x63h.mongodb.net/garments_db?retryWrites=true&w=majority&appName=Cluster0
       - key: NODE_ENV
         value: development
       - key: JWT_SECRET
-        sync: false
+        value: some_super_secret_key_123
