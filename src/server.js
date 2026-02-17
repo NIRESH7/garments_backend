@@ -2,7 +2,7 @@ import app from './app.js';
 import fs from 'fs';
 import path from 'path';
 
-const PORT = process.env.PORT || 5001;
+const PORT = 5001; // process.env.PORT || 5001;
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(path.resolve(), 'uploads');
