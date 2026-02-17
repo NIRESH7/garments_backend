@@ -1,5 +1,5 @@
 node_modules/
-.env
+# .env removed to allow pushing per user request
 .DS_Store
 dist/
 logs/
