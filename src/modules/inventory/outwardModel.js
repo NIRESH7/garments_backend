@@ -11,6 +11,8 @@ const outwardItemSchema = mongoose.Schema({
     set_no: { type: String, required: true },
     colours: [outwardColourSchema],
     total_weight: { type: Number, required: true },
+    rack_name: { type: String },
+    pallet_number: { type: String },
 });
 
 const outwardSchema = mongoose.Schema(
@@ -36,6 +38,10 @@ const outwardSchema = mongoose.Schema(
         inTime: { type: String },
         outTime: { type: String },
         items: [outwardItemSchema],
+        lotInchargeSignature: { type: String },
+        authorizedSignature: { type: String },
+        lotInchargeSignTime: { type: Date },
+        authorizedSignTime: { type: Date },
     },
     {
         timestamps: true,

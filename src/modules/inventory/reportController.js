@@ -1,6 +1,9 @@
 import asyncHandler from 'express-async-handler';
 import Inward from './inwardModel.js';
 import Outward from './outwardModel.js';
+import StockLimit from '../master/stockLimitModel.js';
+import Category from '../master/categoryModel.js';
+import ItemGroup from '../master/itemGroupModel.js';
 
 // @desc    Get Overview Report (Stock Overview)
 // @route   GET /api/inventory/reports/overview
@@ -244,9 +247,285 @@ const getClientFormatReport = asyncHandler(async (req, res) => {
     res.json(report);
 });
 
+// @desc    Get Godown Stock Report with Min/Max Indication
+// @route   GET /api/inventory/reports/godown-stock
+const getGodownStockReport = asyncHandler(async (req, res) => {
+    const { lotName, dia } = req.query;
+
+    const inwards = await Inward.find({});
+    const outwards = await Outward.find({});
+    const baseStockLimits = await StockLimit.find({});
+
+    let stockMap = {};
+
+    // 1. Process Inwards
+    inwards.forEach(i => {
+        i.diaEntries.forEach(entry => {
+            const key = `${i.lotName}_${entry.dia}`;
+            if (!stockMap[key]) {
+                stockMap[key] = {
+                    lotName: i.lotName,
+                    dia: entry.dia,
+                    currentWeight: 0,
+                    currentRolls: 0
+                };
+            }
+            stockMap[key].currentWeight += (entry.recWt || 0);
+            stockMap[key].currentRolls += (entry.recRoll || entry.roll || 0);
+        });
+    });
+
+    // 2. Process Outwards
+    outwards.forEach(o => {
+        const key = `${o.lotName}_${o.dia}`;
+        if (stockMap[key]) {
+            o.items.forEach(item => {
+                stockMap[key].currentWeight -= (item.total_weight || 0);
+                stockMap[key].currentRolls -= item.colours.reduce((acc, curr) => acc + (curr.no_of_rolls || 0), 0);
+            });
+        }
+    });
+
+    // 3. Integrate Stock Limits and Calculate Metrics
+    const report = [];
+
+    // We want to show all combinations that either have stock OR have a limit defined
+    const allKeys = new Set([...Object.keys(stockMap), ...baseStockLimits.map(l => `${l.lotName}_${l.dia}`)]);
+
+    allKeys.forEach(key => {
+        const [lName, lDia] = key.split('_');
+        const stockInfo = stockMap[key] || { currentWeight: 0, currentRolls: 0 };
+        const limitInfo = baseStockLimits.find(l => l.lotName === lName && l.dia === lDia) || {
+            minWeight: 0,
+            maxWeight: 0,
+            minRolls: 0,
+            maxRolls: 0,
+            manualAdjustment: 0
+        };
+
+        const totalCurrentWeight = stockInfo.currentWeight + (limitInfo.manualAdjustment || 0);
+
+        let status = 'NORMAL';
+        if (limitInfo.minWeight > 0 && totalCurrentWeight < limitInfo.minWeight) {
+            status = 'LOW STOCK';
+        } else if (limitInfo.maxWeight > 0 && totalCurrentWeight > limitInfo.maxWeight) {
+            status = 'HIGH STOCK';
+        }
+
+        const needWeight = Math.max(0, (limitInfo.maxWeight || 0) - totalCurrentWeight);
+        const needRolls = needWeight / 20;
+
+        report.push({
+            lotName: lName,
+            dia: lDia,
+            minWeight: limitInfo.minWeight,
+            maxWeight: limitInfo.maxWeight,
+            currentWeight: stockInfo.currentWeight,
+            outsideInput: limitInfo.manualAdjustment,
+            totalStock: totalCurrentWeight,
+            needWeight: needWeight,
+            needRolls: needRolls,
+            status: status
+        });
+    });
+
+    // Filter by query params if provided
+    let filteredReport = report;
+    if (lotName) {
+        filteredReport = filteredReport.filter(r => r.lotName.toLowerCase().includes(lotName.toLowerCase()));
+    }
+    if (dia) {
+        filteredReport = filteredReport.filter(r => r.dia === dia);
+    }
+
+    res.json(filteredReport);
+});
+
+// @desc    Get Shade Card Report (Grouped by Item Group)
+// @route   GET /api/inventory/reports/shade-card
+const getShadeCardReport = asyncHandler(async (req, res) => {
+    const itemGroups = await ItemGroup.find({});
+    const categories = await Category.find({});
+
+    // Find the 'Colour' category
+    const colourCategory = categories.find(c => c.name.toLowerCase().includes('colour'));
+    const colorValues = colourCategory ? colourCategory.values : [];
+
+    const report = itemGroups.map(group => {
+        const enrichedColours = (group.colours || []).map(colourName => {
+            const detail = colorValues.find(v => v.name.toLowerCase() === colourName.toLowerCase());
+            return {
+                name: colourName,
+                gsm: (detail && detail.gsm) ? detail.gsm : group.gsm, // Priority to category detail gsm if exists
+                photo: detail ? detail.photo : null
+            };
+        });
+
+        return {
+            groupName: group.groupName,
+            items: group.itemNames,
+            gsm: group.gsm,
+            colours: enrichedColours
+        };
+    });
+
+    res.json(report);
+});
+
+// @desc    Get Lot Aging Summary (Bucketed)
+// @route   GET /api/inventory/reports/aging-summary
+const getLotAgingSummaryReport = asyncHandler(async (req, res) => {
+    const inwards = await Inward.find({}).sort({ inwardDate: 1 });
+
+    const summary = {
+        '0-15 Days': { rolls: 0, weight: 0 },
+        '16-30 Days': { rolls: 0, weight: 0 },
+        '31-45 Days': { rolls: 0, weight: 0 },
+        '45+ Days': { rolls: 0, weight: 0 },
+    };
+
+    const now = new Date();
+
+    inwards.forEach(inward => {
+        const age = Math.ceil((now - new Date(inward.inwardDate)) / (1000 * 60 * 60 * 24));
+
+        let bucket = '45+ Days';
+        if (age <= 15) bucket = '0-15 Days';
+        else if (age <= 30) bucket = '16-30 Days';
+        else if (age <= 45) bucket = '31-45 Days';
+
+        const totalRolls = inward.diaEntries.reduce((acc, curr) => acc + (curr.recRoll || curr.roll || 0), 0);
+        const totalWt = inward.diaEntries.reduce((acc, curr) => acc + (curr.recWt || 0), 0);
+
+        summary[bucket].rolls += totalRolls;
+        summary[bucket].weight += totalWt;
+    });
+
+    // Format for frontend table
+    const report = Object.keys(summary).map(key => ({
+        range: key,
+        rolls: summary[key].rolls,
+        weight: summary[key].weight.toFixed(2)
+    }));
+
+    res.json(report);
+});
+
+// @desc    Get Rack and Pallet Wise Stock Report
+// @route   GET /api/inventory/reports/rack-pallet
+const getRackPalletStockReport = asyncHandler(async (req, res) => {
+    const { rackName, palletNo, lotName } = req.query;
+
+    console.log(`Getting Rack/Pallet Stock Report. Filters: lotName=${lotName}, rack=${rackName}, pallet=${palletNo}`);
+
+    // Fetch all inwards to be safe, filter in memory
+    const inwards = await Inward.find({}).sort({ inwardDate: -1 });
+    const outwards = await Outward.find({});
+
+    // 1. Create a map for used sets (Lot + Dia + SetNo)
+    const usedSetsMap = new Set();
+    outwards.forEach(o => {
+        if (o.items) {
+            o.items.forEach(item => {
+                // Use a consistent key format
+                const key = `${o.lotNo}_${o.dia}_${item.set_no}`.toLowerCase();
+                usedSetsMap.add(key);
+            });
+        }
+    });
+
+    let stockReport = [];
+
+    // 2. Flatten Inward storageDetails into individual sets
+    inwards.forEach(inw => {
+        // storageDetails can be an array OR just exists as an object
+        const storageDetails = inw.storageDetails;
+        if (storageDetails && Array.isArray(storageDetails) && storageDetails.length > 0) {
+            storageDetails.forEach(sd => {
+                const dia = sd.dia;
+                if (sd.rows && Array.isArray(sd.rows)) {
+                    sd.rows.forEach(row => {
+                        const colour = row.colour;
+                        if (row.setWeights && Array.isArray(row.setWeights)) {
+                            row.setWeights.forEach((weight, index) => {
+                                const setNo = (index + 1).toString();
+                                const rack = sd.racks && sd.racks[index] ? sd.racks[index] : 'N/A';
+                                const pallet = sd.pallets && sd.pallets[index] ? sd.pallets[index] : 'N/A';
+
+                                // Check if this set is already dispatched
+                                const setKey = `${inw.lotNo}_${dia}_${setNo}`.toLowerCase();
+                                if (!usedSetsMap.has(setKey)) {
+                                    stockReport.push({
+                                        rackName: rack,
+                                        palletNo: pallet,
+                                        lotName: inw.lotName,
+                                        lotNo: inw.lotNo,
+                                        dia: dia,
+                                        colour: colour,
+                                        weight: parseFloat(weight) || 0,
+                                        setNo: setNo,
+                                        inwardDate: inw.inwardDate,
+                                        inwardNo: inw.inwardNo
+                                    });
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        }
+    });
+
+    console.log(`Initial stock count: ${stockReport.length}`);
+
+    // 3. Apply filters
+    if (rackName && rackName !== 'All') {
+        const searchRack = rackName.toLowerCase();
+        stockReport = stockReport.filter(s =>
+            s.rackName && s.rackName.toString().toLowerCase().includes(searchRack)
+        );
+    }
+    if (palletNo && palletNo !== 'All') {
+        const searchPallet = palletNo.toLowerCase();
+        stockReport = stockReport.filter(s =>
+            s.palletNo && s.palletNo.toString().toLowerCase().includes(searchPallet)
+        );
+    }
+    if (lotName && lotName !== 'All') {
+        const searchLot = lotName.toLowerCase();
+        stockReport = stockReport.filter(s =>
+            (s.lotName && s.lotName.toString().toLowerCase().includes(searchLot)) ||
+            (s.lotNo && s.lotNo.toString().toLowerCase().includes(searchLot))
+        );
+    }
+
+    console.log(`Final filtered count: ${stockReport.length}`);
+
+    // Sort by Rack and then Pallet
+    stockReport.sort((a, b) => {
+        const rackA = (a.rackName || '').toString().toLowerCase();
+        const rackB = (b.rackName || '').toString().toLowerCase();
+        if (rackA < rackB) return -1;
+        if (rackA > rackB) return 1;
+
+        const palA = (a.palletNo || '').toString().toLowerCase();
+        const palB = (b.palletNo || '').toString().toLowerCase();
+        if (palA < palB) return -1;
+        if (palA > palB) return 1;
+
+        return 0;
+    });
+
+    res.json(stockReport);
+});
+
 export {
     getOverviewReport,
     getInwardOutwardReport,
     getMonthlySummaryReport,
-    getClientFormatReport
+    getClientFormatReport,
+    getGodownStockReport,
+    getShadeCardReport,
+    getLotAgingSummaryReport,
+    getRackPalletStockReport
 };
