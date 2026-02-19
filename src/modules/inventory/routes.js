@@ -15,6 +15,9 @@ import {
     updateInwardComplaint,
     getQualityAuditReport,
     getLotDetails,
+    getLotDetails,
+    getDistinctLots,
+    checkFifoViolation,
 } from './controller.js';
 
 import {
@@ -59,6 +62,7 @@ router.get('/inward/colours', protect, getInwardColours);
 router.get('/inward/fifo-recommendation', protect, getFifoRecommendation);
 router.put('/inward/:id/complaint-solution', protect, updateInwardComplaint);
 router.get('/inward/lot-details', protect, getLotDetails);
+router.get('/inward/distinct-lots', protect, getDistinctLots);
 
 // Outward
 router.route('/outward')
@@ -69,6 +73,7 @@ router.route('/outward')
     .get(protect, getOutwards);
 
 router.get('/outward/generate-dc', protect, generateDcNumber);
+router.get('/outward/check-fifo', protect, checkFifoViolation);
 
 // Reports
 router.get('/reports/client', getClientFormatReport);

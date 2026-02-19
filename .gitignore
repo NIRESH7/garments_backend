@@ -1,6 +1,6 @@
 node_modules/
-# .env removed to allow pushing per user request
+.env
 .DS_Store
 dist/
 logs/
-package-lock.json
+
