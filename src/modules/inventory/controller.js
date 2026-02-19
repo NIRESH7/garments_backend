@@ -961,7 +961,6 @@ export {
     getQualityAuditReport,
     getLotDetails,
     getDistinctLots,
-    getDistinctLots,
     checkFifoViolation,
 };
 
