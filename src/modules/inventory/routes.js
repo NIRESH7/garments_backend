@@ -15,7 +15,7 @@ import {
     updateInwardComplaint,
     getQualityAuditReport,
     getLotDetails,
-    getLotDetails,
+
     getDistinctLots,
     checkFifoViolation,
 } from './controller.js';
