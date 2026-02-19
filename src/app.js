@@ -24,34 +24,8 @@ app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(morgan('dev'));
 
-// Routes
 app.get('/', (req, res) => {
-    res.json({ message: 'Welcome to Mobile API V1 - Cleanup Enabled' });
-});
-
-// TEMPORARY CLEANUP ROUTE - Run once then delete
-app.get('/api/cleanup-now', async (req, res) => {
-    try {
-        const collections = await mongoose.connection.db.listCollections().toArray();
-        const collectionNames = collections.map((col) => col.name);
-        let results = [];
-
-        for (const name of collectionNames) {
-            if (name === 'users') {
-                results.push(`Skipped: ${name}`);
-                continue;
-            }
-            const deleteResult = await mongoose.connection.db.collection(name).deleteMany({});
-            results.push(`Cleared ${name}: Deleted ${deleteResult.deletedCount}`);
-        }
-
-        res.json({
-            message: 'Cleanup successful!',
-            details: results
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+    res.json({ message: 'Welcome to Mobile API V1' });
 });
 
 // Import module routes (to be created)
