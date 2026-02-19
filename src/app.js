@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import helmet from 'helmet';
 import connectDB from './config/db.js';
 import { errorHandler, notFound } from './middleware/errorMiddleware.js';
+import mongoose from 'mongoose';
 
 // Load env vars
 dotenv.config();
@@ -25,11 +26,10 @@ app.use(morgan('dev'));
 
 // Routes
 app.get('/', (req, res) => {
-    res.json({ message: 'Welcome to Mobile API V1' });
+    res.json({ message: 'Welcome to Mobile API V1 - Cleanup Enabled' });
 });
 
 // TEMPORARY CLEANUP ROUTE - Run once then delete
-import mongoose from 'mongoose';
 app.get('/api/cleanup-now', async (req, res) => {
     try {
         const collections = await mongoose.connection.db.listCollections().toArray();
